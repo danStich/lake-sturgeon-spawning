@@ -124,7 +124,7 @@ tmp_jags <- mgcv::jagam(
     y = site_coords[, 2]
   ),
   family = "poisson",
-  file = "tmp.jags")
+  file = "models/tmp.jags")
 
 # . Single-season n-mixture model with spatial GAM ----
 model_string <- 
