@@ -36,20 +36,20 @@ fish <- fish %>%
 
 # . Plot by longitude and latitude ----
 # Both spawning beds
-fish %>%
-  # filter(bed == "Upstream") %>%
-  arrange(count) %>%
-  ggplot(aes(x = Easting, y = Northing, color = count)) +
-  geom_point() +
-  scale_color_gradient(low = "yellow", high = "red") +
-  coord_sf(default_crs = sf::st_crs(26914)) +
-  labs(color = "Count", fill = "Count") +
-  theme_bw() +
-  theme(strip.text = element_text(size = 8),
-        axis.text = element_text(size = 8),
-        panel.spacing.x=unit(2.5, "lines"),
-        axis.title.x = element_text(vjust = -1),
-        axis.title.y = element_text(vjust = 3))
+# fish %>%
+#   # filter(bed == "Upstream") %>%
+#   arrange(count) %>%
+#   ggplot(aes(x = Easting, y = Northing, color = count)) +
+#   geom_point() +
+#   scale_color_gradient(low = "yellow", high = "red") +
+#   coord_sf(default_crs = sf::st_crs(26914)) +
+#   labs(color = "Count", fill = "Count") +
+#   theme_bw() +
+#   theme(strip.text = element_text(size = 8),
+#         axis.text = element_text(size = 8),
+#         panel.spacing.x=unit(2.5, "lines"),
+#         axis.title.x = element_text(vjust = -1),
+#         axis.title.y = element_text(vjust = 3))
 
 # . Pivot to long form to add zeroes and NAs (for unsampled days) ----
 fish$date <- as.Date(fish$date, format = "%m/%d/%Y")
@@ -103,6 +103,7 @@ test_data <- sturgeon %>%
   filter(grepl("Downstream", site)) %>%
   ungroup()
 
+
 # . The temporary GAM we will take apart ----
 # https://masonfidino.com/generalized_additive_occupancy_model/
 # .. Get year, site, day combos ----
@@ -133,13 +134,7 @@ model_string <-
     log_nlambda[i] <- inprod(b, X[i,])
     log(nlambda[i]) <- log_nlambda[i]
     N[i] ~ dpois(nlambda[i])
-  
   }
-  
-  logit(mu_p) <- mu_lp
-  mu_lp ~ dnorm(0, 1)
-  tau_lp <- pow(sigma_lp, -2)
-  sigma_lp ~ dunif(0, 10)
   
   for(i in 1:nsite){
    for(t in 1:ndays){
@@ -150,7 +145,13 @@ model_string <-
    }
   }
   
-  ## Parametric effect priors 
+  # Priors for detection
+  logit(mu_p) <- mu_lp
+  mu_lp ~ dnorm(0, 1)
+  tau_lp <- pow(sigma_lp, -2)
+  sigma_lp ~ dunif(0, 10)
+  
+  ## Parametric effect priors for abundance
   b[1] ~ dnorm(0, 1/0.95^2)
   ## prior for s(x,y)
   K1 <- S1[1:14,1:14] * lambda[1] 
@@ -167,13 +168,13 @@ ch <- as.matrix(caps[, 2:ncol(caps)])
 
 data_list <- list(
   y = ch,
-  X = tmp_jags$jags.data$X,
-  S1 = tmp_jags$jags.data$S1,
-  nsite = length(unique(test_data$site)),
-  ndays = length(unique(test_data$day)),
-  zero = tmp_jags$jags.data$zero
-)
+  X = tmp_jags$jags.data$X,                 # GAM Northings/Eastings
+  S1 = tmp_jags$jags.data$S1,               # GAM parameters             
+  zero = tmp_jags$jags.data$zero,           # GAM parameters
+  nsite = length(unique(test_data$site)),   # Site ID
+  ndays = length(unique(test_data$day))     # Number of days in data set
 
+)
 
 inits <- function(){list(
   N = rep(max(test_data$count, na.rm = TRUE), length(unique(test_data$site))))
@@ -194,7 +195,7 @@ my_mod <- jags(
 # Print summary
 print(my_mod, digits = 3)
 
-save(my_mod, file = "my_mod_test.rda")
+save(my_mod, file = "results/my_mod_test.rda")
 
 # Posteriors -----
 posts <- my_mod$BUGSoutput$sims.list
@@ -213,13 +214,14 @@ n_posts <- left_join(n_posts, sites, by = "site")
 sums <- n_posts %>% 
   group_by(site, Easting, Northing) %>% 
   summarize(
-    fit = median(N)
-  ) 
+    fit = median(N),
+    lwr = quantile(N, 0.025),
+    upr = quantile(N, 0.975)) 
 
 sums %>% 
   arrange(fit) %>% 
   ggplot(aes(x = Easting, y = Northing, color = fit)) +
-  geom_point(shape = 15, size = 8) +
+  geom_point(shape = 15, size = 10) +
   scale_color_gradient(low = "yellow", high = "red") +
   coord_sf(default_crs = sf::st_crs(26914)) +
   labs(color = "Count", fill = "Count") +
@@ -237,10 +239,10 @@ max(sums$fit)
 max(test_data$count, na.rm = TRUE)
 
 
-# . Detection ----
-p_posts <- data.frame(melt(posts$mu_p))
-names(p_posts) <- c("iteration", "group", "p")
-# ggplot(p_posts, aes(p)) +
-#   geom_histogram()
-
-hist(p_posts$p)
+# . Detection (totally haven't done this yet) ----
+# p_posts <- data.frame(melt(posts$mu_p))
+# names(p_posts) <- c("iteration", "group", "p")
+# # ggplot(p_posts, aes(p)) +
+# #   geom_histogram()
+# 
+# hist(p_posts$p)
