@@ -36,20 +36,20 @@ fish <- fish %>%
 
 # . Plot by longitude and latitude ----
 # Both spawning beds
-# fish %>%
-#   # filter(bed == "Upstream") %>%
-#   arrange(count) %>%
-#   ggplot(aes(x = Easting, y = Northing, color = count)) +
-#   geom_point() +
-#   scale_color_gradient(low = "yellow", high = "red") +
-#   coord_sf(default_crs = sf::st_crs(26914)) +
-#   labs(color = "Count", fill = "Count") +
-#   theme_bw() +
-#   theme(strip.text = element_text(size = 8),
-#         axis.text = element_text(size = 8),
-#         panel.spacing.x=unit(2.5, "lines"),
-#         axis.title.x = element_text(vjust = -1),
-#         axis.title.y = element_text(vjust = 3))
+fish %>%
+  # filter(bed == "Upstream") %>%
+  arrange(count) %>%
+  ggplot(aes(x = Easting, y = Northing, color = count)) +
+  geom_point() +
+  scale_color_gradient(low = "yellow", high = "red") +
+  coord_sf(default_crs = sf::st_crs(26914)) +
+  labs(color = "Count", fill = "Count") +
+  theme_bw() +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        panel.spacing.x=unit(2.5, "lines"),
+        axis.title.x = element_text(vjust = -1),
+        axis.title.y = element_text(vjust = 3))
 
 # . Pivot to long form to add zeroes and NAs (for unsampled days) ----
 fish$date <- as.Date(fish$date, format = "%m/%d/%Y")
@@ -99,7 +99,7 @@ sturgeon <- merge(sturgeon, sites)
 # Spatial occupancy test ----
 # . Get a single season of data ----
 test_data <- sturgeon %>% 
-  filter(year == 2022) %>%
+  filter(year == 2011) %>%
   filter(grepl("Downstream", site)) %>%
   ungroup()
 
@@ -183,8 +183,7 @@ inits <- function(){list(
 # Compile the model ----
 my_mod <- jags(
   model = textConnection(model_string),
-  parameters.to.save = c(
-    "b", "rho", "log_nlambda", "nlambda", "N", "mu_p"),
+  parameters.to.save = c("b", "rho", "log_nlambda", "nlambda", "N", "mu_p"),
   data = data_list,
   inits = inits,
   n.chains = 3,
@@ -221,7 +220,7 @@ sums <- n_posts %>%
 sums %>% 
   arrange(fit) %>% 
   ggplot(aes(x = Easting, y = Northing, color = fit)) +
-  geom_point(shape = 15, size = 10) +
+  geom_point(shape = 15, size = 5) +
   scale_color_gradient(low = "yellow", high = "red") +
   coord_sf(default_crs = sf::st_crs(26914)) +
   labs(color = "Count", fill = "Count") +
