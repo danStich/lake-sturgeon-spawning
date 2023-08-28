@@ -1,0 +1,35 @@
+model{
+  for(i in 1:nsite){
+    # Latent state, b is the smoothing term and X is site coords
+    log_nlambda[i] <- inprod(b, X[i,])
+    log(nlambda[i]) <- log_nlambda[i]
+    N[i] ~ dpois(nlambda[i])
+  }
+
+  for(t in 1:ndays){
+    # the priors
+    lp[t] ~ dnorm(mu_lp, tau_lp)
+    logit(p[t]) <- lp[t]
+  }
+  
+  for(i in 1:nsite){
+    for(t in 1:ndays){
+      y[i, t] ~ dbin(p[t], N[i])
+    }
+  }
+  
+  # Priors for detection
+  logit(mu_p) <- mu_lp
+  mu_lp ~ dnorm(0, 1)
+  tau_lp <- pow(sigma_lp, -2)
+  sigma_lp ~ dunif(0, 10)
+  
+  ## Parametric effect priors for abundance
+  b[1] ~ dnorm(0, 1/0.95^2)
+  ## prior for s(x, y)
+  K1 <- S1[1:14,1:14] * lambda[1] 
+  b[2:15] ~ dmnorm(zero[2:15], K1) 
+  ## smoothing parameter priors
+  lambda ~ dgamma(0.05, 0.005)
+  rho <- log(lambda)
+}
