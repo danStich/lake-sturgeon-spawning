@@ -121,29 +121,30 @@ inits <- function(){list(
   N = matrix(max(test_data$count, na.rm = TRUE), 
           length(unique(test_data$site)),
           length(unique(test_data$year))
-          ))#,
-  # z = rep(1, length(unique(test_data$day))))
+          ))
 }
 
 # Compile the model ----
-my_mod <- jags(
+multi_year_fit <- jags(
   model.file = "models/multi-year.jags",
   parameters.to.save = c("b", "rho", "log_nlambda", 
                          "nlambda", "N", "mu_p", "p"),
   data = data_list,
   inits = inits,
   n.chains = 3,
-  n.iter = 1000,
-  n.burnin = 500,
+  n.iter = 50000,
+  n.burnin = 25000,
   n.thin = 5)
 
 # Print summary
-print(my_mod, digits = 3)
+print(multi_year_fit, digits = 3)
 
-save(my_mod, file = "results/multi-year.rda")
+# Save results to .rda file
+save(multi_year_fit, file = "results/multi_year_fit.rda")
+
 
 # Posteriors -----
-posts <- my_mod$BUGSoutput$sims.list
+posts <- multi_year_fit$BUGSoutput$sims.list
 
 
 # . Local abundance ----
