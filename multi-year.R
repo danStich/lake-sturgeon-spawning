@@ -169,15 +169,17 @@ sums %>%
   ggplot(aes(x = Easting, y = Northing, color = fit)) +
   geom_point(shape = 15, size = 2) +
   scale_color_gradient(low = "yellow", high = "red") +
-  coord_sf(default_crs = sf::st_crs(26914)) +
+  # coord_sf(default_crs = sf::st_crs(26914)) +
   labs(color = "Count", fill = "Count") +
   theme_bw() +
   theme(strip.text = element_text(size = 8),
-        axis.text = element_text(size = 8),
-        panel.spacing.x=unit(2.5, "lines"),
+        axis.text.y = element_text(size = 8),
+        axis.text.x = element_text(size = 6),
+        panel.spacing.x=unit(0, "lines"),
         axis.title.x = element_text(vjust = -1),
-        axis.title.y = element_text(vjust = 3)) +
-  facet_wrap(~year)
+        axis.title.y = element_text(vjust = 3),
+        axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~year, nrow = 1)
 
 
 # .. Summary statistics ----
