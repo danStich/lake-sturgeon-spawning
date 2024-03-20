@@ -4,104 +4,90 @@ library(lubridate)
 library(reshape)
 library(R2jags)
 
-# Dataset----
-# Read in the data file
+# Datasets----
+# . Fish counts ----
 fish <- read.csv("data/sturgeon_grid_data.csv")
 str(fish)
 
+fish <- fish %>% 
+  filter(count != "#REF!" & !is.na(id)) %>% 
+  mutate(count = as.numeric(count))
+
+fish <- fish[, c('date', 'id', 'count')]
+
+# fish <- fish %>%
+#   group_by(date, id) %>%
+#   summarize(count = sum(count))
+
+# .Transect data ----
+transects <- read.csv("data/all_transects_2011_2023.csv")
+
+transects <- transects[, c('id', 'date', 'bed', 
+                           'left', 'top', 'right', 'bottom')]
+
+# Get average Easting and Northing per grid cell
+transects$Easting <- rowMeans(transects[,c('left', 'right')])
+transects$Northing <- rowMeans(transects[,c('top', 'bottom')])
+
+# Drop any cells missing coords
+transects <- transects[!is.na(transects$Easting), ]
+transects <- transects[!duplicated(transects[1:ncol(transects)]), ]
+
+
+# . Combined data ----
+# Merge fish data and transect data
+fish_merge <- merge(x = fish, y = transects, 
+                    by = c('id', 'date'),
+                    all.y = TRUE)
+
+nrow(fish_merge)
+
+fish_merge$count[is.na(fish_merge$count)] <- 0
+
+
+# . Date management ----
+fish_merge$date <- as.Date(fish_merge$date, format = "%m/%d/%Y")
+fish_merge$day <- yday(fish_merge$date)
+fish_merge$year <- year(fish_merge$date)
+
+
 # Date manipulation----
-# . QA/QC ----
-
-# Remove rows in which there was an invalid count in Excel
-fish <- fish %>% 
-  filter(count != "#REF!")
-
-# Remove spaces in the date column
-fish$date <- gsub(pattern = " ", replacement = "",
-                  x = fish$date)
-# Remove spaces from bed name 
-fish$bed <- gsub(pattern = " ", replacement = "",
-                 x = fish$bed)
-fish$bed <- gsub(pattern = "Upper", replacement = "Upstream",
-                 x = fish$bed)
-
-# Get average Easting and Northing per grid cell to 
-# calculate the center point of the cell
-fish$Easting <- rowMeans(fish[,c('left', 'right')])
-fish$Northing <- rowMeans(fish[,c('top', 'bottom')])
-
 # . Summarize by grid ----
-# Remove an erroneous data point, then add counts together in 
-# each grid cell
-fish <- fish %>% 
-  filter(!(bed == "Downstream" & Northing < 4983600)) %>% 
-  group_by(date, bed, id, Easting, Northing) %>% 
-  summarize(count = sum(count)) %>% 
-  mutate(rep = row_number(), site = paste0(bed, "-", id))
+sturgeon_check <- fish_merge %>% 
+  filter(!(bed == "downstream" & Northing < 4983950)) %>% 
+  group_by(date, year, day, bed, id, Easting, Northing) %>% 
+  mutate(rep = row_number(), site = as.character(id)) %>% 
+  filter(!is.na(Easting) & !is.na(Northing))
 
 
-# . Pivot to long form to add zeroes and NAs (for unsampled days) ----
-# Convert date column to a Date object in a way that R can use it
-fish$date <- as.Date(fish$date, format = "%m/%d/%Y")
+# . Plot by longitude and latitude ----
+# Both spawning beds
+sturgeon_check %>%
+  # filter(bed == 'upstream' & year == 2018) %>%
+  arrange(count) %>%
+  ggplot(aes(x = Easting, y = Northing, color = count)) +
+  geom_point() +
+  scale_color_gradient(low = "black", high = "red") +
+  coord_sf(default_crs = sf::st_crs(26918)) +
+  labs(color = "Count", fill = "Count") +
+  theme_bw() +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        panel.spacing.x=unit(2.5, "lines"),
+        axis.title.x = element_text(vjust = -1),
+        axis.title.y = element_text(vjust = 3))
 
-# Extract day of year from the newly formatted date column
-fish$day <- yday(fish$date)
+# . Subsetting ----
+sturgeon <- sturgeon_check
+sturgeon <- sturgeon %>%
+  filter(day >= 120)
 
-# Extract year from the newly formatted date column
-fish$year <- year(fish$date)
-
-# Make a 3-dimensional array (matrix of matrices) to get the 
-# grid cells that had zero fish counted that day
-zeroes <- reshape::cast(fish, 
-                        formula = bed ~ site ~ day ~ year,
-                        value = "count",
-                        fun.aggregate = "sum",
-                        fill = 0,
-                        drop = FALSE,
-                        add.missing = TRUE)
-
-# For each spawning bed in each year on each day, if the sum of all
-# the counts for that day were zero, then it was unsampled, so 
-# assign that grid cell a value of NA
-for(i in 1:2){ # Spawning bed
-  for(t in 1:12){ # Year
-    for(d in 1:length(unique(fish$day))){ # Day
-      if(sum(zeroes[i, , d, t]) == 0){
-        zeroes[i, , d, t] <- NA
-      }      
-    }
-  }
-}
-
-
-# Collapse the data back into long-form to make
-# capture histories with or without site, date, bed, year
-sturgeon <- reshape2::melt(zeroes)
-names(sturgeon)[5] <- "count"
-
-# Get rid of erroneous combos for site and bed that resulted from how
-# we casted the zeroes array
-sturgeon$check <- 0
-sturgeon$check[sturgeon$bed == "Downstream" & grepl("Downstream", sturgeon$site)] <- 1
-sturgeon$check[sturgeon$bed == "Upstream" & grepl("Upstream", sturgeon$site)] <- 1
-
-sturgeon <- sturgeon %>% filter(check == 1)
-
-# Get Eastings and Northings from original data for each grid cell
-sites <- data.frame(unique(cbind(fish$site, fish$Easting, fish$Northing)))
-names(sites) <- c("site", "Easting", "Northing")
-sites[,2:3] <- apply(sites[, 2:3], 2, as.numeric)
-
-# Merge the Eastings and Northings with the sturgeon data that contains zeroes
-sturgeon <- merge(sturgeon, sites)
-
-# Set aside data (for subsetting if needed)
-test_data <- sturgeon
-
-# .. Get sum of counts ----
-caps <- cast(test_data, formula = site ~ day ~ year,
+# .. Capture history ----
+caps <- cast(sturgeon, formula = id ~ day ~ year,
              value = "count",
-             fun.aggregate = "sum")
+             fun.aggregate = function(x){round(mean(x), 0)},
+             add.missing = TRUE,
+             fill = NA)
 
 # Spatial GAM for abundance ----
 # Code adapted from:
@@ -111,36 +97,61 @@ caps <- cast(test_data, formula = site ~ day ~ year,
 
 # . Spatial GAM for counts ----
 # .. Get unique sites with coords for GAM ----
-my_sites <- unique(test_data$site)
-site_coords <- unique(cbind(test_data$Easting, test_data$Northing))
+my_sites <- unique(sturgeon$id)
+site_info <- unique(cbind(sturgeon$Easting, sturgeon$Northing, sturgeon$bed))
+site_coords <- unique(cbind(sturgeon$Easting, sturgeon$Northing))
+sites <- data.frame(my_sites, site_info)
+names(sites) <- c('id', 'Easting', 'Northing', 'Bed')
 
 # .. Write spatial GAM parameter structure to a file ----
+knots = 15
 tmp_jags_spatial <- mgcv::jagam(
-  response ~ s(x, y, k = 15, bs = "ds", m = c(1, 0.5)),
+  response ~ s(x, y, k = knots, bs = "ds", m = c(1, 0.5)),
   data = data.frame(
     response = rep(1, length(my_sites)),
     x = site_coords[, 1],
     y = site_coords[, 2]
   ),
   family = "poisson",
-  file = "models/tmp.jags")
+  file = "models/tmp_ds.jags")
+
+
+# tmp_jags_spatial_ds <- mgcv::jagam(
+#   response ~ s(x, y, k = 15, bs = "ds", m = c(1, 0.5)),
+#   data = data.frame(
+#     response = rep(1, length(my_sites[sites$Bed == "downstream"])),
+#     x = site_coords[sites$Bed == "downstream", 1],
+#     y = site_coords[sites$Bed == "downstream", 2]
+#   ),
+#   family = "poisson",
+#   file = "models/tmp_ds.jags")
+# 
+# tmp_jags_spatial_us <- mgcv::jagam(
+#   response ~ s(x, y, k = 15, bs = "ds", m = c(1, 0.5)),
+#   data = data.frame(
+#     response = rep(1, length(my_sites[sites$Bed == "upstream"])),
+#     x = site_coords[sites$Bed == "upstream", 1],
+#     y = site_coords[sites$Bed == "upstream", 2]
+#   ),
+#   family = "poisson",
+#   file = "models/tmp_us.jags")
 
 # . JAGS data ----
 data_list <- list(
   y = caps,
-  X = tmp_jags_spatial$jags.data$X,                 # Spatial GAM Coordinates
-  S1 = tmp_jags_spatial$jags.data$S1,               # Spatial GAM parameters             
-  zero = tmp_jags_spatial$jags.data$zero,           # Spatial GAM parameters
-  nsite = length(unique(test_data$site)),           # Site ID
-  ndays = length(unique(test_data$day)),            # Number of days in data
-  nyears = length(unique(test_data$year)))          # Number of years in data
-
+  X = tmp_jags_spatial$jags.data$X,           # Spatial GAM Coordinates
+  S1 = tmp_jags_spatial$jags.data$S1,         # Spatial GAM parameters             
+  zero = tmp_jags_spatial$jags.data$zero,     # Spatial GAM parameters
+  nsite = length(unique(sturgeon$site)),      # Site ID
+  ndays = length(unique(sturgeon$day)),       # Number of days in data
+  nyears = length(unique(sturgeon$year)),     # Number of years in data
+  knots = knots)     
 
 # . Initial values ----
 inits <- function(){list(
-  N = matrix(max(test_data$count, na.rm = TRUE), 
-          length(unique(test_data$site)),
-          length(unique(test_data$year))
+  N = matrix(max(sturgeon$count, na.rm = TRUE), 
+          length(unique(sturgeon$id)),
+          length(unique(sturgeon$year))
           ))
 }
 
@@ -148,10 +159,10 @@ inits <- function(){list(
 # . Parameters to save ----
 params <- c("b", "rho", "log_nlambda", 
             "nlambda", "N", "mu_p", "p",
-            "fit", "fit.rep", "lambda_pop")
+            "fit", "fit.rep")
 
 
-# Compile the model ----
+# . Compile the model ----
 multi_year_fit <- jags(
   model.file = "models/multi-year.jags",
   parameters.to.save = params,
@@ -163,13 +174,13 @@ multi_year_fit <- jags(
   n.thin = 5)
 
 # Print summary
-# print(multi_year_fit, digits = 3)
-
-# Save results to .rda file
-# save(multi_year_fit, file = "results/multi_year_fit.rda")
-load("results/multi_year_fit.rda")
+print(multi_year_fit, digits = 3)
 
 # Results ----
+# Save results to .rda file
+# save(multi_year_fit, file = "results/multi_year_fit.rda")
+# load("results/multi_year_fit.rda")
+
 # Posteriors -----
 posts <- multi_year_fit$BUGSoutput$sims.list
 
@@ -191,20 +202,24 @@ mean(posts$fit.rep > posts$fit)
 
 # Figure 2 ----
 n_posts <- melt(posts$N)
-names(n_posts) <- c("iteration", "site", "year", "N")
-n_posts$site <- unique(as.character(test_data$site))[n_posts$site]
-n_posts$year <- unique(test_data$year)[n_posts$year]
-n_posts <- left_join(n_posts, sites, by = "site")
-n_posts$bed <- gsub("-.*","", n_posts$site)
+names(n_posts) <- c("iteration", "id_num", "year", "N")
+n_posts$id <- as.numeric(unique(as.character(sturgeon$id))[n_posts$id])
+n_posts$year <- unique(sturgeon$year)[n_posts$year]
+n_posts <- left_join(n_posts, sites, by = "id")
+n_posts$bed <- gsub("-.*","", n_posts$id)
 
 # . Plot count by Northing and Easting ----
 # Both spawning beds
 sums <- n_posts %>% 
-  group_by(bed, site, year, Easting, Northing) %>% 
+  group_by(id, year, Easting, Northing) %>% 
   summarize(
     fit = mean(N),
     lwr = quantile(N, 0.025),
-    upr = quantile(N, 0.975)) 
+    upr = quantile(N, 0.975)) %>% 
+  mutate(Easting = as.numeric(Easting),
+         Northing = as.numeric(Northing))
+
+sums$bed <- rep(sort(sites$Bed), length(unique(sturgeon$year)))
 
 sums %>%
   arrange(fit) %>%
@@ -239,8 +254,9 @@ max_plot <- ggplot(maxes, aes(x = year, y = fit, color = bed, fill = bed)) +
   geom_line() +
   geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr, color = NULL), 
               alpha = 0.25) +
-  ylab(expression(paste("max(", italic("N"["i,j"]), ")"))) +
-  xlab("") +
+  ylab(expression(paste("Max density per 900 m"^2))) +
+  xlab("Year") +
+  labs(color = "Spawning Bed", fill = "Spawning Bed") +
   scale_color_manual(labels = c("Downstream", "Upstream", "Both"),
                      values = c("gray60", "black", "gray40")) +
   scale_fill_manual(labels = c("Downstream", "Upstream", "Both"),
@@ -252,6 +268,15 @@ max_plot <- ggplot(maxes, aes(x = year, y = fit, color = bed, fill = bed)) +
     legend.direction = "horizontal",
     axis.title.y = element_text(vjust = 3)
   )
+
+jpeg("results/ppt_maxes.jpg",
+     height = 1800,
+     width = 2400,
+     res = 300
+)
+max_plot
+dev.off()
+
 
 # . Max abundance per bed per year across sites ----
 overalls <- sums %>% 
@@ -269,14 +294,23 @@ overalls_plot <- ggplot(overalls, aes(x = year, y = fit, color = bed, fill = bed
                      values = c("gray60", "black")) +
   scale_fill_manual(labels = c("Downstream", "Upstream"),
                     values = c("gray60", "black")) +
-  xlab("") +
-  ylab(expression(paste(
-    {Sigma^italic(I)}[italic("i"), "= 1"], "(",italic("N"["i, j"]),")"))) +
+  scale_x_continuous(breaks = seq(2012, 2022, 2)) +
+  xlab("Year") +
+  labs(color = "Spawning Bed", fill = "Spawning Bed") +
+  ylab("Total abundance per site") +
   theme_bw() +
-  theme(legend.position = "none",
+  theme(legend.position = "top",
+        legend.direction = "horizontal",
         axis.title.y = element_text(vjust = 3)
         )
   
+jpeg("results/ppt_beds.jpg",
+     height = 1800,
+     width = 2400,
+     res = 300
+)
+overalls_plot
+dev.off()
 
 # . Max abundance at whole study area ----
 total <- sums %>% 
@@ -290,13 +324,25 @@ total_plot <- ggplot(total, aes(x = year, y = fit)) +
   geom_line() +
   geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr), 
               alpha = 0.25) +
+  scale_x_continuous(breaks = seq(2012, 2022, 2)) +
   xlab("Year") +
-  ylab(expression(paste(
-    Sigma, {Sigma^italic(I)}[italic("i"), "= 1"], "(",italic("N"["i, j"]),")"))) +
+  labs(color = "Spawning Bed", fill = "Spawning Bed") +
+  ylab("Total abundance across sites") +
   theme_bw() +
-  theme(legend.position = "none",
+  theme(legend.position = "top",
+        legend.direction = "horizontal",
         axis.title.y = element_text(vjust = 3)
   )
+
+jpeg("results/ppt_total.jpg",
+     height = 1800,
+     width = 2400,
+     res = 300
+)
+total_plot
+dev.off()
+
+
 
 jpeg("results/Figure3.jpg",
      height = 2400,
@@ -348,7 +394,7 @@ dev.off()
 # Figure S2 Detection probability ----
 p_posts <- melt(posts$p)
 names(p_posts) <- c("iteration", "day", "p")
-p_posts$day <- sort(unique(test_data$day))[p_posts$day]
+p_posts$day <- sort(unique(sturgeon$day))[p_posts$day]
 
 p_summary <- p_posts %>% 
   group_by(day) %>% 
