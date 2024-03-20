@@ -13,17 +13,20 @@ fish <- fish %>%
   filter(count != "#REF!" & !is.na(id)) %>% 
   mutate(count = as.numeric(count))
 
-fish <- fish[, c('date', 'id', 'count')]
+fish <- fish[, c('date', 'id', 'count', 'file_name')]
 
-# fish <- fish %>%
-#   group_by(date, id) %>%
-#   summarize(count = sum(count))
+# Sum within grid cells for a single transect (file_name)
+fish <- fish %>%
+  group_by(date, id, file_name) %>%
+  summarize(count = sum(count))
 
 # .Transect data ----
 transects <- read.csv("data/all_transects_2011_2023.csv")
+names(transects) <- gsub("\\.", "_", names(transects))
 
 transects <- transects[, c('id', 'date', 'bed', 
                            'left', 'top', 'right', 'bottom')]
+
 
 # Get average Easting and Northing per grid cell
 transects$Easting <- rowMeans(transects[,c('left', 'right')])
@@ -83,9 +86,9 @@ sturgeon <- sturgeon %>%
   filter(day >= 120)
 
 # .. Capture history ----
-caps <- cast(sturgeon, formula = id ~ day ~ year,
+caps <- cast(sturgeon, formula = id ~ day ~ year ~ rep,
              value = "count",
-             fun.aggregate = function(x){round(mean(x), 0)},
+             fun.aggregate = "mean",
              add.missing = TRUE,
              fill = NA)
 
@@ -145,14 +148,14 @@ data_list <- list(
   nsite = length(unique(sturgeon$site)),      # Site ID
   ndays = length(unique(sturgeon$day)),       # Number of days in data
   nyears = length(unique(sturgeon$year)),     # Number of years in data
-  knots = knots)     
+  knots = knots,
+  nreps = length(unique(sturgeon$rep)))     
 
 # . Initial values ----
 inits <- function(){list(
   N = matrix(max(sturgeon$count, na.rm = TRUE), 
           length(unique(sturgeon$id)),
-          length(unique(sturgeon$year))
-          ))
+          length(unique(sturgeon$year))))
 }
 
 
@@ -206,7 +209,6 @@ names(n_posts) <- c("iteration", "id_num", "year", "N")
 n_posts$id <- as.numeric(unique(as.character(sturgeon$id))[n_posts$id])
 n_posts$year <- unique(sturgeon$year)[n_posts$year]
 n_posts <- left_join(n_posts, sites, by = "id")
-n_posts$bed <- gsub("-.*","", n_posts$id)
 
 # . Plot count by Northing and Easting ----
 # Both spawning beds
@@ -218,8 +220,6 @@ sums <- n_posts %>%
     upr = quantile(N, 0.975)) %>% 
   mutate(Easting = as.numeric(Easting),
          Northing = as.numeric(Northing))
-
-sums$bed <- rep(sort(sites$Bed), length(unique(sturgeon$year)))
 
 sums %>%
   arrange(fit) %>%
@@ -241,20 +241,25 @@ sums %>%
 
 
 # Figure 3 ----
-# . Max density per site per year ----
-maxes <- sums %>% 
-  group_by(bed, year) %>% 
+# . Mean density per site per year ----
+means <- n_posts %>% 
+  group_by(id, year, Easting, Northing, Bed) %>% 
   summarize(
-    fit = max(fit),
-    lwr = max(lwr),
-    upr = max(upr)
-    )
+    fit = mean(N),
+    lwr = quantile(N, 0.025),
+    upr = quantile(N, 0.975)) %>% 
+  mutate(Easting = as.numeric(Easting),
+         Northing = as.numeric(Northing)) %>% 
+  group_by(year, Bed) %>% 
+  summarize(fit = mean(fit),
+            lwr = mean(lwr),
+            upr = mean(upr))
 
-max_plot <- ggplot(maxes, aes(x = year, y = fit, color = bed, fill = bed)) + 
+means_plot <- ggplot(means, aes(x = year, y = fit, color = Bed, fill = Bed)) + 
   geom_line() +
   geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr, color = NULL), 
               alpha = 0.25) +
-  ylab(expression(paste("Max density per 900 m"^2))) +
+  ylab(expression(paste("Mean density per 900 m"^2))) +
   xlab("Year") +
   labs(color = "Spawning Bed", fill = "Spawning Bed") +
   scale_color_manual(labels = c("Downstream", "Upstream", "Both"),
@@ -274,19 +279,25 @@ jpeg("results/ppt_maxes.jpg",
      width = 2400,
      res = 300
 )
-max_plot
+means_plot
 dev.off()
 
 
-# . Max abundance per bed per year across sites ----
-overalls <- sums %>% 
-  group_by(bed, year) %>% 
+# . Sum of abundance per bed per year across sites ----
+overalls <- n_posts %>% 
+  group_by(id, year, Easting, Northing, Bed) %>% 
   summarize(
-    fit = sum(fit),
-    lwr = sum(lwr),
-    upr = sum(upr)) 
+    fit = mean(N),
+    lwr = quantile(N, 0.025),
+    upr = quantile(N, 0.975)) %>% 
+  mutate(Easting = as.numeric(Easting),
+         Northing = as.numeric(Northing)) %>% 
+  group_by(year, Bed) %>% 
+  summarize(fit = sum(fit),
+            lwr = sum(lwr),
+            upr = sum(upr))
 
-overalls_plot <- ggplot(overalls, aes(x = year, y = fit, color = bed, fill = bed)) + 
+overalls_plot <- ggplot(overalls, aes(x = year, y = fit, color = Bed, fill = Bed)) + 
   geom_line() +
   geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr, color = NULL), 
               alpha = 0.25) +
@@ -312,13 +323,19 @@ jpeg("results/ppt_beds.jpg",
 overalls_plot
 dev.off()
 
-# . Max abundance at whole study area ----
-total <- sums %>% 
-  group_by(year) %>% 
+# . Sum of abundance at whole study area ----
+total <- n_posts %>% 
+  group_by(id, year, Easting, Northing, Bed) %>% 
   summarize(
-    fit = sum(fit),
-    lwr = sum(lwr),
-    upr = sum(upr)) 
+    fit = mean(N),
+    lwr = quantile(N, 0.025),
+    upr = quantile(N, 0.975)) %>% 
+  mutate(Easting = as.numeric(Easting),
+         Northing = as.numeric(Northing)) %>% 
+  group_by(year) %>% 
+  summarize(fit = sum(fit),
+            lwr = sum(lwr),
+            upr = sum(upr))
 
 total_plot <- ggplot(total, aes(x = year, y = fit)) + 
   geom_line() +
@@ -343,13 +360,13 @@ total_plot
 dev.off()
 
 
-
+# .. Figure ----
 jpeg("results/Figure3.jpg",
      height = 2400,
      width = 1800,
      res = 300
      )
-  gridExtra::grid.arrange(max_plot, overalls_plot, total_plot)
+  gridExtra::grid.arrange(means_plot, overalls_plot, total_plot)
 dev.off()
 
 # Figure 4 ----
@@ -426,47 +443,47 @@ dev.off()
 # Summary statistics ----
 # .. Average number per site by bed ----
 avgs <- n_posts %>% 
-  group_by(bed) %>% 
+  group_by(Bed) %>% 
   summarize(
     fit = mean(N),
     lwr = quantile(N, 0.025),
     upr = quantile(N, 0.975)) 
 avgs
 
-# .. Differences in max abundance between sites within year ----
-max_diffs <- maxes %>% 
-  select(c(bed, year, fit)) %>% 
-  spread(bed, fit) %>% 
-  mutate(diff = Downstream - Upstream)
-mean(max_diffs$diff)
+# .. Differences in mean abundance between sites within year ----
+mean_diffs <- means %>% 
+  select(c(Bed, year, fit)) %>% 
+  spread(Bed, fit) %>% 
+  mutate(diff = downstream - upstream)
+mean(mean_diffs$diff)
 
-max_diffs <- maxes %>% 
-  select(c(bed, year, lwr)) %>% 
-  spread(bed, lwr) %>% 
-  mutate(diff = Downstream - Upstream)
-mean(max_diffs$diff)
+mean_diffs_lwr <- means %>% 
+  select(c(Bed, year, lwr)) %>% 
+  spread(Bed, lwr) %>% 
+  mutate(diff = downstream - upstream)
+mean(mean_diffs_lwr$diff)
 
-max_diffs <- maxes %>% 
-  select(c(bed, year, upr)) %>% 
-  spread(bed, upr) %>% 
-  mutate(diff = Downstream - Upstream)
-mean(max_diffs$diff)
+mean_diffs_upr <- means %>% 
+  select(c(Bed, year, upr)) %>% 
+  spread(Bed, upr) %>% 
+  mutate(diff = downstream - upstream)
+mean(mean_diffs_upr$diff)
 
 # .. Differences in sum of abundance between beds ----
 overall_diffs <- overalls %>% 
-  select(c(bed, year, fit)) %>% 
-  spread(bed, fit) %>% 
-  mutate(diff = Downstream - Upstream)
+  select(c(Bed, year, fit)) %>% 
+  spread(Bed, fit) %>% 
+  mutate(diff = downstream - upstream)
 mean(overall_diffs$diff)
 
-overall_diffs <- overalls %>% 
-  select(c(bed, year, lwr)) %>% 
-  spread(bed, lwr) %>% 
-  mutate(diff = Downstream - Upstream)
-mean(overall_diffs$diff)
+overall_diffs_lwr <- overalls %>% 
+  select(c(Bed, year, lwr)) %>% 
+  spread(Bed, lwr) %>% 
+  mutate(diff = downstream - upstream)
+mean(overall_diffs_lwr$diff)
 
-overall_diffs <- overalls %>% 
-  select(c(bed, year, upr)) %>% 
-  spread(bed, upr) %>% 
-  mutate(diff = Downstream - Upstream)
-mean(overall_diffs$diff)
+overall_diffs_upr <- overalls %>% 
+  select(c(Bed, year, upr)) %>% 
+  spread(Bed, upr) %>% 
+  mutate(diff = downstream - upstream)
+mean(overall_diffs_upr$diff)
