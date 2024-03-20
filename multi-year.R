@@ -118,27 +118,6 @@ tmp_jags_spatial <- mgcv::jagam(
   family = "poisson",
   file = "models/tmp_ds.jags")
 
-
-# tmp_jags_spatial_ds <- mgcv::jagam(
-#   response ~ s(x, y, k = 15, bs = "ds", m = c(1, 0.5)),
-#   data = data.frame(
-#     response = rep(1, length(my_sites[sites$Bed == "downstream"])),
-#     x = site_coords[sites$Bed == "downstream", 1],
-#     y = site_coords[sites$Bed == "downstream", 2]
-#   ),
-#   family = "poisson",
-#   file = "models/tmp_ds.jags")
-# 
-# tmp_jags_spatial_us <- mgcv::jagam(
-#   response ~ s(x, y, k = 15, bs = "ds", m = c(1, 0.5)),
-#   data = data.frame(
-#     response = rep(1, length(my_sites[sites$Bed == "upstream"])),
-#     x = site_coords[sites$Bed == "upstream", 1],
-#     y = site_coords[sites$Bed == "upstream", 2]
-#   ),
-#   family = "poisson",
-#   file = "models/tmp_us.jags")
-
 # . JAGS data ----
 data_list <- list(
   y = caps,
@@ -180,8 +159,8 @@ multi_year_fit <- jags(
 print(multi_year_fit, digits = 3)
 
 # Results ----
-# Save results to .rda file
-# save(multi_year_fit, file = "results/multi_year_fit.rda")
+# Save results to .rda file ----
+save(multi_year_fit, file = "results/multi_year_fit.rda")
 # load("results/multi_year_fit.rda")
 
 # Posteriors -----
@@ -375,20 +354,24 @@ head(total)
 
 # Calculate population growth rate as:
 # r = ln(lambda); lambda = (Nt/Nt-1)/t
-r_mat <- total %>%  mutate(
-  fit = log(fit/lag(fit)),
-  lwr = log(lwr/lag(lwr)),
-  upr = log(upr/lag(upr))
+r_mat <- overalls %>%  
+  group_by(Bed) %>% 
+  mutate(
+    fit = log(fit/lag(fit)),
+    lwr = log(lwr/lag(lwr)),
+    upr = log(upr/lag(upr))
   )
 
-mean(r_mat$fit, na.rm = TRUE)
-mean(r_mat$lwr, na.rm = TRUE)
-mean(r_mat$upr, na.rm = TRUE)
+r_mat %>% 
+  group_by(Bed) %>% 
+  summarize(fit = mean(fit, na.rm = TRUE),
+            lwr = mean(lwr, na.rm = TRUE),
+            upr = mean(upr, na.rm = TRUE))
+
 
 r_plot <- r_mat %>% filter(year >= 2012) %>% 
 ggplot(aes(x = year, y = fit)) +
-  geom_hline(yintercept = a_fit, linetype = 2) +
-  geom_ribbon(aes(xmax = year, ymin = a_lwr, ymax = a_upr), alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = 2) +
   geom_point(size = 2) +
   geom_errorbar(aes(xmax = fit, ymin = lwr, ymax = upr), width = 0) +
   xlab("Year") +
@@ -397,7 +380,8 @@ ggplot(aes(x = year, y = fit)) +
   theme_bw() +
   theme(
     axis.title.x = element_text(vjust = -1),
-    axis.title.y = element_text(vjust = 3))
+    axis.title.y = element_text(vjust = 3)) +
+  facet_wrap(~Bed)
 
 jpeg("results/Figure4.jpg",
      width = 2400,
