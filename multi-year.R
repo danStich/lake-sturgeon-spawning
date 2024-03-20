@@ -472,3 +472,25 @@ overall_diffs_upr <- overalls %>%
   spread(Bed, upr) %>% 
   mutate(diff = downstream - upstream)
 mean(overall_diffs_upr$diff)
+
+# .. Data files for simulating capture histories ----
+grid_means <- n_posts %>% 
+  group_by(id, Easting, Northing, Bed) %>% 
+  summarize(
+    fit = mean(N),
+    lwr = quantile(N, 0.025),
+    upr = quantile(N, 0.975)) %>% 
+  mutate(Easting = as.numeric(Easting),
+         Northing = as.numeric(Northing))
+
+grid_means_year <- n_posts %>% 
+  group_by(year, id, Easting, Northing, Bed) %>% 
+  summarize(
+    fit = mean(N),
+    lwr = quantile(N, 0.025),
+    upr = quantile(N, 0.975)) %>% 
+  mutate(Easting = as.numeric(Easting),
+         Northing = as.numeric(Northing))
+
+save(grid_means, file = "results/grid_means.rda")
+save(grid_means_year, file = "results/grid_means_year.rda")
