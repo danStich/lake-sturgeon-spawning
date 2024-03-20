@@ -91,11 +91,9 @@ multi_year_fit <- jags(
   data = data_list,
   inits = inits,
   n.chains = 3,
-  n.iter = 500,
-  n.burnin = 250,
+  n.iter = 50000,
+  n.burnin = 25000,
   n.thin = 5)
 
 # Print summary
 print(multi_year_fit, digits = 3)
-
-
