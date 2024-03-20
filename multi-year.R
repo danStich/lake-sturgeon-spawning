@@ -3,6 +3,7 @@ library(tidyverse)
 library(lubridate)
 library(reshape)
 library(R2jags)
+library(mgcv)
 
 # Datasets----
 # . Fish counts ----
