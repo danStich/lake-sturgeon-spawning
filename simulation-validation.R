@@ -10,7 +10,7 @@ library(mgcv)
 load(file = "results/grid_means.rda")
 
 # Mean detection probability in study
-p_test <- 0.038
+p_test <- 0.5
 
 # Design considerations ----
 nreps <- 10
@@ -91,9 +91,34 @@ multi_year_fit <- jags(
   data = data_list,
   inits = inits,
   n.chains = 3,
-  n.iter = 50000,
+  n.iter = 200000,
   n.burnin = 25000,
   n.thin = 5)
 
 # Print summary
 print(multi_year_fit, digits = 3)
+
+# Results ----
+# Extract posterior estimates
+posts <- multi_year_fit$BUGSoutput$sims.list
+
+# Get estimates of N
+n_posts <- melt(posts$N)
+glimpse(n_posts)
+names(n_posts) <- c("iteration", "id", "year", "n_est")
+
+n_est <- n_posts %>% 
+  group_by(id) %>% 
+  summarize(n_est = mean(n_est)) %>% 
+  select(n_est) %>% 
+  unlist()
+
+# Smash it all back together
+sim_preds <- data.frame(grid_means, n_est)
+
+# Calculate bias
+sim_preds$bias <- round(sim_preds$n_est) - round(sim_preds$fit)
+
+hist(sim_preds$bias, breaks = 30)
+median(sim_preds$bias)
+quantile(sim_preds$bias, c(0.025, 0.975))
