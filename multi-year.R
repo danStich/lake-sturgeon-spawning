@@ -4,6 +4,7 @@ library(lubridate)
 library(reshape)
 library(R2jags)
 library(mgcv)
+library(cowplot)
 
 # Datasets----
 # . Fish counts ----
@@ -152,38 +153,43 @@ multi_year_fit <- jags(
   data = data_list,
   inits = inits,
   n.chains = 3,
-  n.iter = 500000,
-  n.burnin = 250000,
+  n.iter = 100000,
+  n.burnin = 50000,
   n.thin = 5)
 
 # Print summary
 print(multi_year_fit, digits = 3)
 
 # Results ----
-# Save results to .rda file ----
+# . Save results to .rda file ----
 save(multi_year_fit, file = "results/multi_year_fit.rda")
 # load("results/multi_year_fit.rda")
 
 # Posteriors -----
 posts <- multi_year_fit$BUGSoutput$sims.list
 
-# Figure S1 ----
+# Figure S1 (Posterior predictive check) ----
 # Make a dataframe to plot fitted vs predicted residuals
 resids <- data.frame(
   Fitted = posts$fit,
   Predicted = posts$fit.rep
 )
 
-# Plot predicted vs fitted with a 1:1 line
-ggplot(resids, aes(x = Fitted, y = Predicted)) +
-  geom_point(alpha = 0.5) +
-  geom_abline(intercept = 0, slope = 1)
-
 # Calculate Bayesian p-value
 mean(posts$fit.rep > posts$fit) 
 
+# Figure
+jpeg("results/FigureS1.jpg",
+     height = 1800,
+     width = 1800,
+     res = 300)
+  # Plot predicted vs fitted with a 1:1 line
+  ggplot(resids, aes(x = Fitted, y = Predicted)) +
+    geom_point(alpha = 0.5) +
+    geom_abline(intercept = 0, slope = 1)
+dev.off()
 
-# Figure 2 ----
+# Figure 2 (Spatial plot) ----
 n_posts <- melt(posts$N)
 names(n_posts) <- c("iteration", "id_num", "year", "N")
 n_posts$id <- as.numeric(unique(as.character(sturgeon$id))[n_posts$id])
@@ -201,13 +207,13 @@ sums <- n_posts %>%
   mutate(Easting = as.numeric(Easting),
          Northing = as.numeric(Northing))
 
-sums %>%
+Figure2 <- sums %>%
   arrange(fit) %>%
   ggplot(aes(x = Easting, y = Northing, color = fit, fill = fit)) +
   geom_tile() +
   scale_color_gradient(low = "gray87", high = "red") +
   scale_fill_gradient(low = "gray87", high = "red") +
-  # coord_sf(default_crs = sf::st_crs(26914)) +
+  coord_sf(default_crs = sf::st_crs(26914)) +
   scale_x_continuous(breaks = c(2000, 2100)) +
   labs(color = "Count", fill = "Count") +
   theme_bw() +
@@ -219,8 +225,17 @@ sums %>%
         axis.title.y = element_text(vjust = 3)) +
   facet_wrap(~year, nrow = 1)
 
+jpeg("results/Figure2.jpg",
+     height = 1800,
+     width = 2400,
+     res = 300
+)
+Figure2
+dev.off()
 
-# Figure 3 ----
+
+
+# Figure 4 (Abundance plots) ----
 # . Mean density per site per year ----
 means <- n_posts %>% 
   group_by(id, year, Easting, Northing, Bed) %>% 
@@ -240,7 +255,7 @@ means_plot <- ggplot(means, aes(x = year, y = fit, color = Bed, fill = Bed)) +
   geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr, color = NULL), 
               alpha = 0.25) +
   ylab(expression(paste("Mean density per 900 m"^2))) +
-  xlab("Year") +
+  xlab("") +
   labs(color = "Spawning Bed", fill = "Spawning Bed") +
   scale_color_manual(labels = c("Downstream", "Upstream", "Both"),
                      values = c("gray60", "black", "gray40")) +
@@ -253,14 +268,6 @@ means_plot <- ggplot(means, aes(x = year, y = fit, color = Bed, fill = Bed)) +
     legend.direction = "horizontal",
     axis.title.y = element_text(vjust = 3)
   )
-
-jpeg("results/ppt_maxes.jpg",
-     height = 1800,
-     width = 2400,
-     res = 300
-)
-means_plot
-dev.off()
 
 
 # . Sum of abundance per bed per year across sites ----
@@ -286,22 +293,22 @@ overalls_plot <- ggplot(overalls, aes(x = year, y = fit, color = Bed, fill = Bed
   scale_fill_manual(labels = c("Downstream", "Upstream"),
                     values = c("gray60", "black")) +
   scale_x_continuous(breaks = seq(2012, 2022, 2)) +
-  xlab("Year") +
-  labs(color = "Spawning Bed", fill = "Spawning Bed") +
+  xlab("") +
+  # labs(color = "Spawning Bed", fill = "Spawning Bed") +
   ylab("Total abundance per site") +
   theme_bw() +
-  theme(legend.position = "top",
+  theme(legend.position = "NULL",
         legend.direction = "horizontal",
         axis.title.y = element_text(vjust = 3)
         )
   
-jpeg("results/ppt_beds.jpg",
-     height = 1800,
-     width = 2400,
-     res = 300
-)
-overalls_plot
-dev.off()
+# jpeg("results/ppt_beds.jpg",
+#      height = 1800,
+#      width = 2400,
+#      res = 300
+# )
+# overalls_plot
+# dev.off()
 
 # . Sum of abundance at whole study area ----
 total <- n_posts %>% 
@@ -331,25 +338,29 @@ total_plot <- ggplot(total, aes(x = year, y = fit)) +
         axis.title.y = element_text(vjust = 3)
   )
 
-jpeg("results/ppt_total.jpg",
-     height = 1800,
-     width = 2400,
-     res = 300
-)
-total_plot
-dev.off()
+# jpeg("results/ppt_total.jpg",
+#      height = 1800,
+#      width = 2400,
+#      res = 300
+# )
+# total_plot
+# dev.off()
 
 
 # .. Figure ----
-jpeg("results/Figure3.jpg",
+jpeg("results/Figure4.jpg",
      height = 2400,
      width = 1800,
      res = 300
      )
-  gridExtra::grid.arrange(means_plot, overalls_plot, total_plot)
+  ggdraw() +
+    draw_plot(means_plot, x = 0, y = .66, width = 1, height = .35) +
+    draw_plot(overalls_plot, x = 0, y = .33, width = 1, height = .3) +
+    draw_plot(total_plot, x = 0, y = 0, width = 1, height = 0.3)
+  
 dev.off()
 
-# Figure 4 ----
+# Figure 5 (Population growth) ----
 # . Population growth rate ----
 head(total)
 
@@ -369,6 +380,10 @@ r_mat %>%
             lwr = mean(lwr, na.rm = TRUE),
             upr = mean(upr, na.rm = TRUE))
 
+mean(r_mat$fit, na.rm = TRUE)
+mean(r_mat$lwr, na.rm = TRUE)
+mean(r_mat$upr, na.rm = TRUE)
+
 
 r_plot <- r_mat %>% filter(year >= 2012) %>% 
 ggplot(aes(x = year, y = fit)) +
@@ -384,7 +399,7 @@ ggplot(aes(x = year, y = fit)) +
     axis.title.y = element_text(vjust = 3)) +
   facet_wrap(~Bed)
 
-jpeg("results/Figure4.jpg",
+jpeg("results/Figure5.jpg",
      width = 2400,
      height = 1800,
      res = 300
@@ -393,7 +408,7 @@ r_plot
 dev.off()
 
 
-# Figure S2 Detection probability ----
+# Figure 3 (Detection probability) ----
 p_posts <- melt(posts$p)
 names(p_posts) <- c("iteration", "day", "p")
 p_posts$day <- sort(unique(sturgeon$day))[p_posts$day]
@@ -409,13 +424,13 @@ p_plot <- ggplot(p_summary, aes(x = day, y = fit)) +
   geom_errorbar(aes(xmax = day, ymin = lwr, ymax = upr),
               alpha = 0.5, width = 0) +
   xlab("Day of year") +
-  ylab(expression(paste("Individual detection probability", italic("p"["t"])))) +
+  ylab(expression(paste("Individual detection probability (", italic("p"["t"]), ")"))) +
   theme_bw() +
   theme(
     axis.title.x = element_text(vjust = -1),
     axis.title.y = element_text(vjust = 3))  
 
-jpeg("results/FigureS2.jpg",
+jpeg("results/Figure3.jpg",
      width = 2400,
      height = 1800,
      res = 300
@@ -425,7 +440,8 @@ dev.off()
 
 
 
-# Summary statistics ----
+# Summary statistics and post-processing files ----
+# . Abundance ----
 # .. Average number per site by bed ----
 avgs <- n_posts %>% 
   group_by(Bed) %>% 
@@ -436,42 +452,30 @@ avgs <- n_posts %>%
 avgs
 
 # .. Differences in mean abundance between sites within year ----
-mean_diffs <- means %>% 
-  select(c(Bed, year, fit)) %>% 
-  spread(Bed, fit) %>% 
+mean_diffs <- n_posts %>% 
+  select(iteration, Bed, year, N) %>% 
+  group_by(iteration, Bed, year) %>%   
+  summarize(N = mean(N)) %>%   
+  group_by(iteration, Bed) %>% 
+  summarize(N = mean(N)) %>% 
+  pivot_wider(names_from = Bed, values_from = N) %>% 
   mutate(diff = downstream - upstream)
+
 mean(mean_diffs$diff)
-
-mean_diffs_lwr <- means %>% 
-  select(c(Bed, year, lwr)) %>% 
-  spread(Bed, lwr) %>% 
-  mutate(diff = downstream - upstream)
-mean(mean_diffs_lwr$diff)
-
-mean_diffs_upr <- means %>% 
-  select(c(Bed, year, upr)) %>% 
-  spread(Bed, upr) %>% 
-  mutate(diff = downstream - upstream)
-mean(mean_diffs_upr$diff)
+quantile(mean_diffs$diff, c(0.025, 0.975))
 
 # .. Differences in sum of abundance between beds ----
-overall_diffs <- overalls %>% 
-  select(c(Bed, year, fit)) %>% 
-  spread(Bed, fit) %>% 
+overall_diffs <- n_posts %>% 
+  select(iteration, Bed, year, N) %>% 
+  group_by(iteration, Bed, year) %>%   
+  summarize(N = sum(N)) %>%   
+  group_by(iteration, Bed) %>% 
+  summarize(N = mean(N)) %>% 
+  pivot_wider(names_from = Bed, values_from = N) %>% 
   mutate(diff = downstream - upstream)
+
 mean(overall_diffs$diff)
-
-overall_diffs_lwr <- overalls %>% 
-  select(c(Bed, year, lwr)) %>% 
-  spread(Bed, lwr) %>% 
-  mutate(diff = downstream - upstream)
-mean(overall_diffs_lwr$diff)
-
-overall_diffs_upr <- overalls %>% 
-  select(c(Bed, year, upr)) %>% 
-  spread(Bed, upr) %>% 
-  mutate(diff = downstream - upstream)
-mean(overall_diffs_upr$diff)
+quantile(overall_diffs$diff, c(0.025, 0.975))
 
 # .. Data files for simulating capture histories ----
 grid_means <- n_posts %>% 
@@ -494,3 +498,11 @@ grid_means_year <- n_posts %>%
 
 save(grid_means, file = "results/grid_means.rda")
 save(grid_means_year, file = "results/grid_means_year.rda")
+
+# . Detection ----
+# .. Mean detection ----
+mean(posts$p)
+quantile(posts$p, c(0.025, 0.975))
+
+# .. Highest detection ----
+p_summary[p_summary$fit == max(p_summary$fit), ]

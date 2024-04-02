@@ -100,8 +100,8 @@ multi_year_fit <- jags(
   data = data_list,
   inits = inits,
   n.chains = 3,
-  n.iter = 500000,
-  n.burnin = 250000,
+  n.iter = 5000,
+  n.burnin = 2500,
   n.thin = 5)
 
 # Print summary
@@ -129,12 +129,15 @@ sim_preds <- data.frame(grid_means, n_est)
 sim_preds$bias <- round(sim_preds$n_est) - round(sim_preds$fit)
 
 
-# . Write results to list (ADD) -----
+# . Write results to list (UPDATE) -----
 sim <- list(
   nreps = nreps,
   nyears = nyears,
   ndays = ndays,
   p = p_test,
+  p_est = mean(posts$p),
+  n_true = mean(sim_preds$fit),
+  n_est = mean(sim_preds$n_est),
   bias = mean(sim_preds$bias)
 )
 
@@ -178,5 +181,7 @@ ggplot(res, aes(x = bias)) +
   geom_histogram()
 
 median(res$bias)
+
+median(res$n_est)-median(res$n_true)
 
 save(out, file = "results/simulation_output_01.rda")
