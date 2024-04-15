@@ -10,43 +10,63 @@ library(snowfall)
 # Load abundance estimates from empirical study
 load(file = "results/grid_means.rda")
 
+# Load detection estimates from empirical study
+load(file = "results/p_summary.rda")
+
+# Load capture histories from empirical study
+# to get days sampled each year
+load(file = "results/caps.rda")
+
 # Set up a parallel back-end ----
 # Initialize snowfall
-sfInit(parallel=TRUE, cpus=10, type="SOCK")
+sfInit(parallel = TRUE, cpus = 10, type="SOCK")
+
 
 # Wrapper function ----
 wrapper <- function(x){
   
 # . Design considerations ----
-nreps <- 10
-nyears <- 1
-ndays <- 1
+p_true <- p_summary$fit #rep(0.5, length(p_summary$fit)) 
+# p_true <- p_summary$fit
+n_true <- ceiling(grid_means$fit)
+  
+nsites <- nrow(grid_means)
+nreps <- 5
+nyears <- 13
+ndays <- length(p_true)
 
 # . Simulated abundance ----
-p_test <- 0.038
 
-n_sim <- matrix(NA, nrow = nrow(grid_means), ncol = nreps)
+# Container to hold observed counts by sites, days, years, reps
+y <- array(NA, dim = c(nsites,           # Sites
+                       ndays,            # Days
+                       nyears,           # Years
+                       nreps))           # Replicates
 
-for(i in 1:ncol(n_sim)){
-  n_sim[, i] <- rbinom(nrow(n_sim), size = round(grid_means$fit), prob = p_test)
+# Simulate observed capture histories from N and p
+for(i in 1:nsites){
+  for(t in 1:ndays){
+    for(j in 1:nyears){
+      for(k in 1:nreps){
+        y[i, t, j, k] <- rbinom(1, size = n_true[i], prob = p_true[t])
+      }
+    }
+  }
 }
 
-# . Capture histories ----
-sturgeon_sim_data <- data.frame(grid_means, n_sim)
-sturgeon_sim_data$day <- 1
-sturgeon_sim_data$year <- 1
+y[is.na(caps)] <- NA
 
-caps_prep <- sturgeon_sim_data %>% 
-  pivot_longer(cols = 8:(ncol(sturgeon_sim_data)-2),
-               names_to = "rep",
-               values_to = "count"
-               )
-
-caps <- cast(caps_prep, formula = id ~ day ~ year ~ rep,
-             value = "count",
-             fun.aggregate = "mean",
-             add.missing = TRUE,
-             fill = NA)
+# Model Likelihood
+# for(i in 1:nsite){
+#   for(t in 1:ndays){
+#     for(j in 1:nyears){
+#       for(k in 1:nreps){
+#         # Response
+#         y[i, t, j, k] ~ dbin(p[t], N[i, j])
+#       }
+#     }
+#   }
+# }
 
 # . Spatial GAM ----
 # . Get unique sites with coords for GAM ----
@@ -70,39 +90,39 @@ tmp_jags_spatial <- mgcv::jagam(
 
 # . JAGS data ----
 data_list <- list(
-  y = caps,
+  y = y,
   X = tmp_jags_spatial$jags.data$X,           # Spatial GAM Coordinates
   S1 = tmp_jags_spatial$jags.data$S1,         # Spatial GAM parameters             
   zero = tmp_jags_spatial$jags.data$zero,     # Spatial GAM parameters
-  nsite = length(unique(grid_means$id)),      # Site ID
-  ndays = 1,                                  # Number of days in data
-  nyears = 1,                                 # Number of years in data
-  knots = knots,
-  nreps = nreps)     
+  nsite = nsites,                             # Site ID
+  ndays = ndays,                              # Number of days in data
+  nyears = nyears,                            # Number of years in data
+  nreps = nreps,                              # Number of replicates
+  knots = knots)                              # Knots in the GAM
 
 # . Initial values ----
 inits <- function(){list(
-  N = matrix(max(caps_prep$count, na.rm = TRUE), 
-             length(unique(caps_prep$id)),
-             length(unique(caps_prep$year))))
+  N = matrix(max(y, na.rm = TRUE), 
+             nsites,
+             nyears))
 }
 
 
 # . Parameters to save ----
-params <- c("b", "rho", "log_nlambda", 
-            "nlambda", "N", "mu_p", "p")
+params <- c("N", "p")
 
 
 # . Compile the model ----
 multi_year_fit <- jags(
-  model.file = "models/multi-year.jags",
+  model.file = "models/multi-year-sim-lightweight.jags",
   parameters.to.save = params,
   data = data_list,
   inits = inits,
   n.chains = 3,
-  n.iter = 5000,
-  n.burnin = 2500,
-  n.thin = 5)
+  n.iter = 100000,
+  n.burnin = 25000,
+  n.thin = 5,
+  refresh = 1)
 
 # Print summary
 print(multi_year_fit, digits = 3)
@@ -122,24 +142,20 @@ n_est <- n_posts %>%
   select(n_est) %>% 
   unlist()
 
-# Smash it all back together
-sim_preds <- data.frame(grid_means, n_est)
-
-# Calculate bias
-sim_preds$bias <- round(sim_preds$n_est) - round(sim_preds$fit)
-
+bias_sum <- sum(n_est) - sum(n_true)
 
 # . Write results to list (UPDATE) -----
 sim <- list(
   nreps = nreps,
   nyears = nyears,
   ndays = ndays,
-  p = p_test,
+  # p = p_test,
   p_est = mean(posts$p),
-  n_true = mean(sim_preds$fit),
-  n_est = mean(sim_preds$n_est),
-  bias = mean(sim_preds$bias)
-)
+  n_true = median(n_true),
+  n_est = median(n_est),
+  n_true_mu = mean(n_true),
+  n_est_mu = mean(n_est),  
+  bias = median(n_est) - median(n_true))
 
 return(sim)
 
@@ -155,6 +171,8 @@ sfLibrary(mgcv)
 sfLibrary(snowfall)
 
 sfExport("grid_means")
+sfExport("p_summary")
+sfExport("caps")
 
 # Number of simulations
 n_iterations <- 100
@@ -173,15 +191,57 @@ sfStop()
 total_time <- Sys.time()- start_time
 total_time
 
-# Process results ----
+# Process output ----
 out <- lapply(result, data.frame)
 res <- do.call(rbind, out)
 
-ggplot(res, aes(x = bias)) +
-  geom_histogram()
+save(res, file = "results/simulation_output_02.rda")
 
+# Results ----
+# . Bias in estimated abundance ----
+# Calculations
 median(res$bias)
+quantile(res$bias, c(0.025, 0.975))
 
-median(res$n_est)-median(res$n_true)
+# Plot the bias in estimated abundance
+n_bias_plot <- ggplot(res, aes(x = bias)) +
+  geom_histogram(bins = 10) +
+  xlab(expression(paste(hat(italic("N")), " - ", italic("N")))) +
+  ylab("Frequency")
 
-save(out, file = "results/simulation_output_01.rda")
+# Show the plot
+n_bias_plot
+
+# . Bias in estimated detection probability ----
+# Calculations
+# Calculate bias in estimated detection probability
+res$p_bias = res$p_est - mean(p_summary$fit)
+
+# Get mean and 95% CI for bias
+mean(res$p_bias)
+quantile(res$p_bias, c(0.025, 0.975))
+
+# Plot the bias in detection probability
+p_bias_plot <- ggplot(res, aes(x = p_bias)) +
+  geom_histogram(bins = 10) +
+  xlab(expression(paste(hat(italic("p")), " - ", italic("p")))) +
+  ylab("Frequency")
+
+# Show the plot
+p_bias_plot
+
+# . Correlations between bias in p and N ----
+# Calculations
+# Calculate the Pearson correlation coefficient 
+# between bias in N and bias in p
+cor(res$bias, res$p_bias)
+
+# Plot the correlation between bias in N and bias in p
+cor_plot <- ggplot(res, aes(x = bias, y = p_bias)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = 'black') +
+  ylab(expression(paste("Bias in ", hat(italic("p"))))) +
+  xlab(expression(paste("Bias in ", hat(italic("N")))))
+
+# Show the plot  
+cor_plot
