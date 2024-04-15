@@ -1,0 +1,46 @@
+model{
+  # State process (abundance)
+  for(i in 1:nsite){
+    for(j in 1:nyears){
+      # Latent state N, 
+      # b is the smoothing term and X is site coords
+      log_nlambda[i, j] <- inprod(b, X[i, ])
+      log(nlambda[i, j]) <- log_nlambda[i, j]
+      N[i, j] ~ dpois(nlambda[i, j])
+    }
+  }
+
+  # Observation process
+  for(t in 1:ndays){
+    lp[t] ~ dnorm(mu_lp, tau_lp)
+    logit(p[t]) <- lp[t]
+  }
+  
+  # Hierarchical priors for detection
+  logit(mu_p) <- mu_lp
+  mu_lp ~ dnorm(0, 1)
+  tau_lp <- pow(sigma_lp, -2)
+  sigma_lp ~ dunif(0, 10)
+  
+  # Likelihood
+  for(i in 1:nsite){
+    for(t in 1:ndays){
+      for(j in 1:nyears){
+        for(k in 1:nreps){
+          # Response
+          y[i, t, j, k] ~ dbin(p[t], N[i, j])
+        }
+      }
+    }
+  }
+  
+  # Parametric effect priors for abundance
+  b[1] ~ dnorm(0, 1/0.95^2) # dnorm(0, 0.001)
+  # Prior for s(x, y)
+  K1 <- S1[1:(knots-1), 1:(knots-1)] * lambda[1] 
+  b[2:knots] ~ dmnorm(zero[2:knots], K1) 
+  # Smoothing parameter priors
+  lambda ~ dgamma(0.05, 0.005)
+  rho <- log(lambda)
+  
+}
