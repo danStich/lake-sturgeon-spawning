@@ -190,6 +190,7 @@ jpeg("results/FigureS1.jpg",
 dev.off()
 
 # Figure 2 (Spatial plot) ----
+# . Posteriors (n_posts) ----
 n_posts <- melt(posts$N)
 names(n_posts) <- c("iteration", "id_num", "year", "N")
 n_posts$id <- as.numeric(unique(as.character(sturgeon$id))[n_posts$id])
@@ -302,14 +303,6 @@ overalls_plot <- ggplot(overalls, aes(x = year, y = fit, color = Bed, fill = Bed
         axis.title.y = element_text(vjust = 3)
         )
   
-# jpeg("results/ppt_beds.jpg",
-#      height = 1800,
-#      width = 2400,
-#      res = 300
-# )
-# overalls_plot
-# dev.off()
-
 # . Sum of abundance at whole study area ----
 total <- n_posts %>% 
   group_by(id, year, Easting, Northing, Bed) %>% 
@@ -337,14 +330,6 @@ total_plot <- ggplot(total, aes(x = year, y = fit)) +
         legend.direction = "horizontal",
         axis.title.y = element_text(vjust = 3)
   )
-
-# jpeg("results/ppt_total.jpg",
-#      height = 1800,
-#      width = 2400,
-#      res = 300
-# )
-# total_plot
-# dev.off()
 
 
 # .. Figure ----
@@ -498,6 +483,7 @@ grid_means_year <- n_posts %>%
 
 save(grid_means, file = "results/grid_means.rda")
 save(grid_means_year, file = "results/grid_means_year.rda")
+save(caps, file = "results/caps.rda")
 
 # . Detection ----
 # .. Mean detection ----
@@ -506,6 +492,16 @@ quantile(posts$p, c(0.025, 0.975))
 
 # .. Highest detection ----
 p_summary[p_summary$fit == max(p_summary$fit), ]
+
+# .. Data files for simulating capture histories ----
+save(p_summary, file = "results/p_summary.rda")
+
+# .. Date ranges for sampling ----
+n_days <- sturgeon %>% 
+  group_by(year) %>% 
+  summarize(max(date) - min(date)) %>% 
+  data.frame()
+mean(n_days[, 2])
 
 # Abundance plot for 2024 SRCA Poster ----
 n_posts <- melt(posts$N)
