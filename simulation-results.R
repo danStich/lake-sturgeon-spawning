@@ -42,20 +42,20 @@ quantile(res$bias, c(0.025, 0.975))
 
 # Plot the bias in estimated abundance
 n_bias_plot <- ggplot(res, aes(x = bias)) +
-  geom_histogram(bins = 10) +
+  geom_histogram(bins = 30) +
   xlab(expression(paste(hat(italic("N")), " - ", italic("N")))) +
   ylab("Frequency")
 
 # Show the plot
 n_bias_plot
-
-# Save it to a file
-jpeg(file = "results/n_bias_plot.jpg",
-     height = 1800,
-     width = 2000,
-     res = 300)
-n_bias_plot
-dev.off()
+# 
+# # Save it to a file
+# jpeg(file = "results/n_bias_plot.jpg",
+#      height = 1800,
+#      width = 2000,
+#      res = 300)
+# n_bias_plot
+# dev.off()
 
 # . Bias in estimated detection probability ----
 # Calculations
@@ -68,20 +68,20 @@ quantile(res$p_bias, c(0.025, 0.975))
 
 # Plot the bias in detection probability
 p_bias_plot <- ggplot(res, aes(x = p_bias)) +
-  geom_histogram(bins = 10) +
+  geom_histogram(bins = 30) +
   xlab(expression(paste(hat(italic("p")), " - ", italic("p")))) +
   ylab("Frequency")
 
 # Show the plot
 p_bias_plot
 
-# Save it to a file
-jpeg(file = "results/p_bias_plot.jpg",
-     height = 1800,
-     width = 2000,
-     res = 300)
-p_bias_plot
-dev.off()
+# # Save it to a file
+# jpeg(file = "results/p_bias_plot.jpg",
+#      height = 1800,
+#      width = 2000,
+#      res = 300)
+# p_bias_plot
+# dev.off()
 
 # . Correlations between bias in p and N ----
 # Calculations
@@ -90,19 +90,32 @@ dev.off()
 cor(res$bias, res$p_bias)
 
 # Plot the correlation between bias in N and bias in p
-cor_plot <- ggplot(res, aes(x = bias, y = p_bias)) +
+cor_plot <- ggplot(res, aes(y = bias, x = p_bias)) +
   geom_point() +
   geom_smooth(method = "lm", color = 'black') +
-  ylab(expression(paste("Bias in ", hat(italic("p"))))) +
-  xlab(expression(paste("Bias in ", hat(italic("N")))))
+  xlab(expression(paste(hat(italic("p")), " - ", italic("p")))) +
+  ylab(expression(paste(hat(italic("N")), " - ", italic("N"))))
 
 # Show the plot  
 cor_plot
 
 # Save it to a file
-jpeg(file = "results/cor_plot.jpg",
-     height = 1800,
+# jpeg(file = "results/cor_plot.jpg",
+#      height = 1800,
+#      width = 2000,
+#      res = 300)
+# cor_plot
+# dev.off()
+
+
+
+# Composite figure for manuscript -----
+# Save it to a file
+jpeg(file = "results/Figure5.jpg",
+     height = 2400,
      width = 2000,
      res = 300)
-cor_plot
+gridExtra::grid.arrange(n_bias_plot, p_bias_plot, cor_plot)
 dev.off()
+
+

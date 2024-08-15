@@ -168,7 +168,7 @@ load("results/multi_year_fit.rda")
 # Posteriors -----
 posts <- multi_year_fit$BUGSoutput$sims.list
 
-# Figure S1 (Posterior predictive check) ----
+# Figure S3 (Posterior predictive check) ----
 # Make a dataframe to plot fitted vs predicted residuals
 resids <- data.frame(
   Fitted = posts$fit,
@@ -179,7 +179,7 @@ resids <- data.frame(
 mean(posts$fit.rep > posts$fit) 
 
 # Figure
-jpeg("results/FigureS1.jpg",
+jpeg("results/FigureS3.jpg",
      height = 1800,
      width = 1800,
      res = 300)
@@ -345,7 +345,7 @@ jpeg("results/Figure4.jpg",
   
 dev.off()
 
-# Figure 5 (Population growth) ----
+# Figure X (Population growth graph, not used in MS) ----
 # . Population growth rate ----
 head(total)
 
@@ -502,125 +502,3 @@ n_days <- sturgeon %>%
   summarize(max(date) - min(date)) %>% 
   data.frame()
 mean(n_days[, 2])
-
-# Abundance plot for 2024 SRCA Poster ----
-n_posts <- melt(posts$N)
-names(n_posts) <- c("iteration", "id_num", "year", "N")
-n_posts$id <- as.numeric(unique(as.character(sturgeon$id))[n_posts$id])
-n_posts$year <- unique(sturgeon$year)[n_posts$year]
-n_posts <- left_join(n_posts, sites, by = "id")
-
-
-# . Mean density per site per year ----
-means <- n_posts %>% 
-  group_by(id, year, Easting, Northing, Bed) %>% 
-  summarize(
-    fit = mean(N),
-    lwr = quantile(N, 0.025),
-    upr = quantile(N, 0.975)) %>% 
-  mutate(Easting = as.numeric(Easting),
-         Northing = as.numeric(Northing)) %>% 
-  group_by(year, Bed) %>% 
-  summarize(fit = mean(fit),
-            lwr = mean(lwr),
-            upr = mean(upr))
-
-means_plot <- ggplot(means, aes(x = year, y = fit, color = Bed, fill = Bed)) + 
-  geom_line() +
-  geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr, color = NULL), 
-              alpha = 0.25) +
-  ylab(expression(paste("Mean density per 900 m"^2))) +
-  xlab("") +
-  # labs(color = "Spawning Bed", fill = "Spawning Bed") +
-  scale_color_manual(labels = c("Downstream", "Upstream", "Both"),
-                     values = c("gray60", "black", "gray40")) +
-  scale_fill_manual(labels = c("Downstream", "Upstream", "Both"),
-                    values = c("gray60", "black", "gray40")) +
-  scale_x_continuous(breaks = seq(2012, 2022, 2)) +
-  theme_bw() +
-  theme(
-    legend.position = "NULL",
-    legend.direction = "horizontal",
-    axis.title.y = element_text(vjust = 3),
-    axis.text = element_text(size = 16),
-    axis.title = element_text(size = 16))
-
-
-# . Sum of abundance per bed per year across sites ----
-overalls <- n_posts %>% 
-  group_by(id, year, Easting, Northing, Bed) %>% 
-  summarize(
-    fit = mean(N),
-    lwr = quantile(N, 0.025),
-    upr = quantile(N, 0.975)) %>% 
-  mutate(Easting = as.numeric(Easting),
-         Northing = as.numeric(Northing)) %>% 
-  group_by(year, Bed) %>% 
-  summarize(fit = sum(fit),
-            lwr = sum(lwr),
-            upr = sum(upr))
-
-overalls_plot <- ggplot(overalls, aes(x = year, y = fit, color = Bed, fill = Bed)) + 
-  geom_line() +
-  geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr, color = NULL), 
-              alpha = 0.25) +
-  scale_color_manual(labels = c("Downstream", "Upstream"),
-                     values = c("gray60", "black")) +
-  scale_fill_manual(labels = c("Downstream", "Upstream"),
-                    values = c("gray60", "black")) +
-  scale_x_continuous(breaks = seq(2012, 2022, 2)) +
-  xlab("") +
-  labs(color = "Spawning Bed", fill = "Spawning Bed") +
-  ylab("Total abundance per site") +
-  xlab("Year") +
-  theme_bw() +
-  theme(legend.position = "top",
-        legend.direction = "horizontal",
-        axis.title.y = element_text(vjust = 3),
-        axis.text = element_text(size = 16),
-        axis.title = element_text(size = 16),
-        legend.text = element_text(size = 16),
-        legend.title = element_text(size = 16))
-
-
-# . Sum of abundance at whole study area ----
-total <- n_posts %>% 
-  group_by(id, year, Easting, Northing, Bed) %>% 
-  summarize(
-    fit = mean(N),
-    lwr = quantile(N, 0.025),
-    upr = quantile(N, 0.975)) %>% 
-  mutate(Easting = as.numeric(Easting),
-         Northing = as.numeric(Northing)) %>% 
-  group_by(year) %>% 
-  summarize(fit = sum(fit),
-            lwr = sum(lwr),
-            upr = sum(upr))
-
-total_plot <- ggplot(total, aes(x = year, y = fit)) + 
-  geom_line() +
-  geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr), 
-              alpha = 0.25) +
-  scale_x_continuous(breaks = seq(2012, 2022, 2)) +
-  xlab("") +
-  ylab("Total abundance across sites") +
-  theme_bw() +
-  theme(legend.position = "top",
-        legend.direction = "horizontal",
-        axis.title.y = element_text(vjust = 3),
-        axis.text = element_text(size = 16),
-        axis.title = element_text(size = 16))
-
-
-# .. Figure ----
-jpeg("results/Figure4Poster.jpg",
-     height = 1800,
-     width = 6000,
-     res = 400
-)
-ggdraw() +
-  draw_plot(means_plot, x = 0, y = 0, width = .33, height = .875) +
-  draw_plot(overalls_plot, x = .33, y = 0, width = .33, height = 1) +
-  draw_plot(total_plot, x = .66, y = 0, width = .33, height = .875)
-
-dev.off()
