@@ -255,7 +255,7 @@ means_plot <- ggplot(means, aes(x = year, y = fit, color = Bed, fill = Bed)) +
   geom_line() +
   geom_ribbon(aes(xmax = year, ymin = lwr, ymax = upr, color = NULL), 
               alpha = 0.25) +
-  ylab(expression(paste("Mean density per 900 m"^2))) +
+  ylab(expression(paste("Mean abundance per 900 m"^2))) +
   xlab("") +
   labs(color = "Spawning Bed", fill = "Spawning Bed") +
   scale_color_manual(labels = c("Downstream", "Upstream", "Both"),
